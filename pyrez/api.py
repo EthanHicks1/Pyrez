@@ -2,6 +2,8 @@ from datetime import timedelta, datetime
 from hashlib import md5 as getMD5Hash
 from sys import version_info as pythonVersion
 import requests
+import configparser
+import os
 
 import pyrez
 from pyrez.enumerations import *
@@ -108,7 +110,9 @@ class HiRezAPI(BaseAPI):
             Otherwise, this will be used. It defaults to class:`ResponseFormat.JSON`.
         """
         super().__init__(devId, authKey, endpoint, responseFormat, self.PYREZ_HEADER)
-        self.currentSession = None
+        self.conf = configparser.ConfigParser()
+        self.conf.read('{0}/conf.ini'.format(os.path.dirname(os.path.abspath(__file__))))
+        self.currentSession = self.conf['Session']['session_id']
 
     def __createTimeStamp__(self, format = "%Y%m%d%H%M%S"):
         """
@@ -159,7 +163,8 @@ class HiRezAPI(BaseAPI):
         if apiMethod.lower() != "ping":
             urlRequest += "/{0}/{1}".format(self.__devId__, self.__createSignature__(apiMethod.lower()))
             if self.currentSession != None and apiMethod.lower() != "createsession":
-                urlRequest += "/{0}".format(self.currentSession.sessionId)
+                #urlRequest += "/{0}".format(self.currentSession.sessionId)
+                urlRequest += "/{0}".format(self.currentSession)
             urlRequest += "/{0}".format(self.__createTimeStamp__())
             #if self.currentSession != None and apiMethod.lower() != "createsession":
                 #urlRequest = [ self.__endpointBaseURL__, apiMethod.lower(), self.__responseFormat__, self.dev_id, self.__createSignature__(apiMethod.lower()), self.currentSession.sessionId, self.currentSession.sessionId, self.__createTimeStamp__() ]
@@ -176,9 +181,9 @@ class HiRezAPI(BaseAPI):
     def makeRequest(self, apiMethod, params =()):
         if len(str(apiMethod)) == 0:
             raise InvalidArgumentException("No API method specified!")
-        elif(apiMethod.lower() != "createsession" and self.currentSession is None):
-            # self.currentSession is None or self.currentSession.isApproved() and self.__currentTime__() - self.currentSession.timeStamp >= timedelta(minutes = 15)
-            self.__createSession__()
+        elif(apiMethod.lower() != "createsession"):
+            if not self.testSession(sessionId = self.currentSession):
+                self.__createSession__()
         result = self.__httpRequest__(apiMethod if str(apiMethod).lower().startswith("http") else self.__buildUrlRequest__(apiMethod, params))
         if result:
             if str(self.__responseFormat__).lower() == str(ResponseFormat.JSON).lower():
@@ -220,7 +225,11 @@ class HiRezAPI(BaseAPI):
             self.__responseFormat__ = ResponseFormat.JSON
             responseJSON = self.makeRequest("createsession")
             if responseJSON:
-                self.currentSession = Session(**responseJSON)
+                #self.currentSession = SessionSession(**responseJSON)
+                self.currentSession = responseJSON['session_id']
+                self.conf['Session']['session_id'] = responseJSON['session_id']
+                with open('{0}/conf.ini'.format(os.path.dirname(os.path.abspath(__file__))), 'w') as configfile:
+                    self.conf.write(configfile)
             self.__responseFormat__ = tempResponseFormat
         except WrongCredentials as x:
             raise x
@@ -255,13 +264,21 @@ class HiRezAPI(BaseAPI):
         -------
         Object of :class:`TestSession`
         """
-        tempResponseFormat = self.__responseFormat__
-        self.__responseFormat__ = ResponseFormat.JSON
-        session = self.currentSession.sessionId if sessionId is None or not str(sessionId).isalnum() else sessionId
+        # tempResponseFormat = self.__responseFormat__
+        # self.__responseFormat__ = ResponseFormat.JSON
+        # session = self.currentSession.sessionId if sessionId is None or not str(sessionId).isalnum() else sessionId
+        # uri = "{0}/testsession{1}/{2}/{3}/{4}/{5}".format(self.__endpointBaseURL__, self.__responseFormat__, self.__devId__, self.__createSignature__("testsession"), session, self.__createTimeStamp__())
+        # responseJSON = self.makeRequest(uri)
+        # self.__responseFormat__ = tempResponseFormat
+        # return TestSession(responseJSON) if responseJSON else None
+        
+        session = self.currentSession if sessionId is None else sessionId
         uri = "{0}/testsession{1}/{2}/{3}/{4}/{5}".format(self.__endpointBaseURL__, self.__responseFormat__, self.__devId__, self.__createSignature__("testsession"), session, self.__createTimeStamp__())
-        responseJSON = self.makeRequest(uri)
-        self.__responseFormat__ = tempResponseFormat
-        return TestSession(responseJSON) if responseJSON else None
+        result = self.__httpRequest__(uri)
+        if result.find("successful test") == -1:
+            return False
+        else:
+            return True
 
     def getDataUsed(self):
         """
