@@ -1,4 +1,4 @@
-from datetime import timedelta, datetime
+﻿from datetime import timedelta, datetime
 from hashlib import md5 as getMD5Hash
 from sys import version_info as pythonVersion
 import requests
@@ -11,11 +11,6 @@ from pyrez.exceptions import *
 from pyrez.http import HttpRequest as HttpRequest
 from pyrez.models import *
 
-# https://github.com/RichardJTorres/smython/blob/master/smython.py
-# https://github.com/micahprice/smite-recommender/blob/master/smite.py
-# https://github.com/cep21/smitego/blob/master/responses.go
-# https://github.com/Azraphael/SmiteAPI/tree/master/ResponseTypes
-# https://github.com/NcUltimate/smite_ruby/tree/master/spec/responses
 class BaseAPI:
     """
     DON'T INITALISE THIS YOURSELF!
@@ -151,10 +146,6 @@ class HiRezAPI(BaseAPI):
         """
         return getMD5Hash(self.__encode__(str(self.__devId__) + str(method) + str(self.__authKey__) + str(timestamp if timestamp else self.__createTimeStamp__()))).hexdigest()
 
-    def __sessionExpired__(self):
-        #return self.currentSession is None
-        return self.currentSession is None or self.currentSession.isApproved() and self.__currentTime__() - self.currentSession.timeStamp >= timedelta(minutes = 15)
-
     def __buildUrlRequest__(self, apiMethod, params =()): # [queue, date, hour]
         if len(str(apiMethod)) == 0:
             raise InvalidArgumentException("No API method specified!")
@@ -181,9 +172,8 @@ class HiRezAPI(BaseAPI):
     def makeRequest(self, apiMethod, params =()):
         if len(str(apiMethod)) == 0:
             raise InvalidArgumentException("No API method specified!")
-        elif(apiMethod.lower() != "createsession"):
-            if not self.testSession(sessionId = self.currentSession):
-                self.__createSession__()
+        elif(apiMethod.lower() != "createsession" and not self.testSession(sessionId = self.currentSession):
+            self.__createSession__()
         result = self.__httpRequest__(apiMethod if str(apiMethod).lower().startswith("http") else self.__buildUrlRequest__(apiMethod, params))
         if result:
             if str(self.__responseFormat__).lower() == str(ResponseFormat.JSON).lower():
@@ -275,10 +265,8 @@ class HiRezAPI(BaseAPI):
         session = self.currentSession if sessionId is None else sessionId
         uri = "{0}/testsession{1}/{2}/{3}/{4}/{5}".format(self.__endpointBaseURL__, self.__responseFormat__, self.__devId__, self.__createSignature__("testsession"), session, self.__createTimeStamp__())
         result = self.__httpRequest__(uri)
-        if result.find("successful test") == -1:
-            return False
-        else:
-            return True
+
+        return result.find("successful test")
 
     def getDataUsed(self):
         """
@@ -477,17 +465,6 @@ class HiRezAPI(BaseAPI):
         """
         return self.makeRequest("getmatchidsbyqueue", [queueID, date.strftime("%Y%m%d") if isinstance(date, datetime) else date, hour])
 
-    def getMatchPlayerDetails(self, matchID):
-        """
-        /getmatchplayerdetails[ResponseFormat]/{developerId}/{signature}/{session}/{timestamp}/{match_id}
-        Returns player information for a live match.
-
-        Parameters
-        ----------
-        matchID : int
-        """
-        return self.makeRequest("getmatchplayerdetails", [matchID])
-
     def getPlayer(self, playerID):
         """
         /getplayer[ResponseFormat]/{developerId}/{signature}/{session}/{timestamp}/{player}
@@ -596,9 +573,8 @@ class PaladinsAPI(HiRezAPI):
         """
         if platform == Platform.MOBILE:
             raise NotSupported("Not released yet!")
-        else:
-            endpoint = Endpoint.PALADINS_XBOX if platform == Platform.XBOX or platform == Platform.NINTENDO_SWITCH else Endpoint.PALADINS_PS4 if platform == Platform.PS4 else Endpoint.PALADINS_PC
-            super().__init__(int(devId), str(authKey), endpoint, responseFormat)
+        endpoint = Endpoint.PALADINS_XBOX if platform == Platform.XBOX or platform == Platform.NINTENDO_SWITCH else Endpoint.PALADINS_PS4 if platform == Platform.PS4 else Endpoint.PALADINS_PC
+        super().__init__(int(devId), str(authKey), endpoint, responseFormat)
 
     def switchPlatform(self, platform):
         if not isinstance(endpoint, Platform):
@@ -651,6 +627,24 @@ class PaladinsAPI(HiRezAPI):
         language :class:`LanguageCode`
         """
         return self.makeRequest("getgodskins", [godID, language])
+
+    def getMatchPlayerDetails(self, matchID):
+        """
+        /getmatchplayerdetails[ResponseFormat]/{developerId}/{signature}/{session}/{timestamp}/{match_id}
+        Returns player information for a live match.
+        Parameters
+        ----------
+        matchID : int
+        """
+        if str(self.__responseFormat__).lower() == str(ResponseFormat.JSON).lower():
+            responseJSON = self.makeRequest("getmatchplayerdetails", [matchID])
+            players = []
+            for player in responseJSON:
+                obj = MatchPlayerDetails(**player)
+                players.append(obj)
+            return players if players else None
+        else:
+            return self.makeRequest("getmatchplayerdetails", [matchID])
 
     def getPlayerIdInfoForXboxAndSwitch(self, playerName):
         """
@@ -713,11 +707,10 @@ class RealmRoyaleAPI(HiRezAPI):
             The response format that will be used by default when making requests.
             Otherwise, this will be used. It defaults to class:`ResponseFormat.JSON`.
         """
-        if platform == Platform.PC:
-            endpoint = Endpoint.REALM_ROYALE_XBOX if(platform == Platform.XBOX) else Endpoint.REALM_ROYALE_PS4 if(platform == Platform.PS4) else Endpoint.REALM_ROYALE_PC
-            super().__init__(int(devId), str(authKey), endpoint, responseFormat)
-        else:
+        if platform != Platform.PC:
             raise NotSupported("Not released yet!")
+        endpoint = Endpoint.REALM_ROYALE_XBOX if(platform == Platform.XBOX) else Endpoint.REALM_ROYALE_PS4 if(platform == Platform.PS4) else Endpoint.REALM_ROYALE_PC
+        super().__init__(int(devId), str(authKey), endpoint, responseFormat)
 
     # /getplayermatchhistory[ResponseFormat]/{developerId}/{signature}/{session}/{timestamp}/{player}
     def getPlayerMatchHistory (self, playerID):
