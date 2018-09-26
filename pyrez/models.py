@@ -1,4 +1,4 @@
-from pyrez.enumerations import Tier
+from pyrez.enumerations import *
 from datetime import datetime
 
 class APIResponse:
@@ -45,6 +45,7 @@ class BaseCharacterRank(APIResponse):
         self.wins = int(kwargs.get("Wins", 0))
         self.worshippers = int(kwargs.get("Worshippers", 0))
         self.playerID = int(kwargs.get("player_id", 0))
+
     def getWinratio(self, decimals = 2):
         aux = self.wins + self.losses if self.wins + self.losses > 1 else 1
         winratio = self.wins / aux * 100.0
@@ -95,7 +96,7 @@ class BasePSPlayer(BasePlayer):
         self.rankedConquest = BaseRanked(**kwargs.get("RankedConquest"))
         self.teamID = int(kwargs.get("TeamId"))
         self.teamName = kwargs.get("Team_Name")
-        self.playerElo = int(kwargs.get("Tier_Conquest", 0))
+        self.playerElo = Tier(int(kwargs.get("Tier_Conquest", 0)))
         self.totalAchievements = int(kwargs.get("Total_Achievements", 0))
         self.totalworshippers = int(kwargs.get("Total_Worshippers", 0))
         self.wins = int(kwargs.get("Wins", 0))
@@ -325,6 +326,7 @@ class MatchPlayerDetails(APIResponse):
         super().__init__(**kwargs)
         self.accountLevel = int(kwargs.get("Account_Level", 0))
         self.championId = Champions(int(kwargs.get("ChampionId", 0)))
+        self.championName = str(self.championId)
         #self.championName = str(kwargs.get("ChampionName", None))
         self.masteryLevel = int(kwargs.get("Mastery_Level", 0))
         self.matchId = int(kwargs.get("Match", 0))

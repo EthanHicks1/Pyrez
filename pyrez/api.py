@@ -90,7 +90,7 @@ class HiRezAPI(BaseAPI):
 
     PYREZ_HEADER = { "user-agent": "{0} [Python/{1.major}.{1.minor}]".format(pyrez.__title__, pythonVersion) }
 
-    def __init__(self, devId, authKey, endpoint, responseFormat = ResponseFormat.JSON):
+    def __init__(self, devId, authKey, endpoint, responseFormat = ResponseFormat.JSON, sessionId = None):
         """
         Parameters
         ----------
@@ -105,9 +105,12 @@ class HiRezAPI(BaseAPI):
             Otherwise, this will be used. It defaults to class:`ResponseFormat.JSON`.
         """
         super().__init__(devId, authKey, endpoint, responseFormat, self.PYREZ_HEADER)
-        self.conf = configparser.ConfigParser()
-        self.conf.read('{0}/conf.ini'.format(os.path.dirname(os.path.abspath(__file__))))
-        self.currentSession = self.conf['Session']['session_id']
+        if sessionId and str(sessionId).isalnum():
+            self.currentSessionId = sessionId
+        else:
+            self.conf = configparser.ConfigParser()
+            self.conf.read('{0}/conf.ini'.format(os.path.dirname(os.path.abspath(__file__))))
+            self.currentSessionId = self.conf['Session']['session_id']
 
     def __createTimeStamp__(self, format = "%Y%m%d%H%M%S"):
         """
@@ -146,6 +149,9 @@ class HiRezAPI(BaseAPI):
         """
         return getMD5Hash(self.__encode__(str(self.__devId__) + str(method) + str(self.__authKey__) + str(timestamp if timestamp else self.__createTimeStamp__()))).hexdigest()
 
+    def __sessionExpired__(self):
+        return self.currentSessionId is None or not str(self.currentSessionId).isalnum()
+
     def __buildUrlRequest__(self, apiMethod, params =()): # [queue, date, hour]
         if len(str(apiMethod)) == 0:
             raise InvalidArgumentException("No API method specified!")
@@ -153,14 +159,14 @@ class HiRezAPI(BaseAPI):
         urlRequest = "{0}/{1}{2}".format(self.__endpointBaseURL__, apiMethod.lower(), self.__responseFormat__)
         if apiMethod.lower() != "ping":
             urlRequest += "/{0}/{1}".format(self.__devId__, self.__createSignature__(apiMethod.lower()))
-            if self.currentSession != None and apiMethod.lower() != "createsession":
-                #urlRequest += "/{0}".format(self.currentSession.sessionId)
-                urlRequest += "/{0}".format(self.currentSession)
+            if self.currentSessionId != None and apiMethod.lower() != "createsession":
+                #urlRequest += "/{0}".format(self.currentSessionId.sessionId)
+                urlRequest += "/{0}".format(self.currentSessionId)
             urlRequest += "/{0}".format(self.__createTimeStamp__())
-            #if self.currentSession != None and apiMethod.lower() != "createsession":
-                #urlRequest = [ self.__endpointBaseURL__, apiMethod.lower(), self.__responseFormat__, self.dev_id, self.__createSignature__(apiMethod.lower()), self.currentSession.sessionId, self.currentSession.sessionId, self.__createTimeStamp__() ]
+            #if self.currentSessionId != None and apiMethod.lower() != "createsession":
+                #urlRequest = [ self.__endpointBaseURL__, apiMethod.lower(), self.__responseFormat__, self.dev_id, self.__createSignature__(apiMethod.lower()), self.currentSessionId, self.__createTimeStamp__() ]
             #else:
-                #urlRequest = [ self.__endpointBaseURL__, apiMethod.lower(), self.__responseFormat__, self.dev_id, self.__createSignature__(apiMethod.lower()), self.currentSession.sessionId, self.__createTimeStamp__() ]
+                #urlRequest = [ self.__endpointBaseURL__, apiMethod.lower(), self.__responseFormat__, self.dev_id, self.__createSignature__(apiMethod.lower()), self.currentSessionId, self.__createTimeStamp__() ]
             if params:
                 #urlRequest += "/" + [str(param) for param in params]
                 #stringParam += param.strftime("yyyyMMdd") if isinstance(param, datetime) else(param is Enums.QueueType || param is Enums.eLanguageCode) ?((int) param).ToString() : str(param);
@@ -172,7 +178,7 @@ class HiRezAPI(BaseAPI):
     def makeRequest(self, apiMethod, params =()):
         if len(str(apiMethod)) == 0:
             raise InvalidArgumentException("No API method specified!")
-        elif(apiMethod.lower() != "createsession" and not self.testSession(sessionId = self.currentSession):
+        elif(apiMethod.lower() != "createsession" and not self.testSession(sessionId = self.currentSessionId):
             self.__createSession__()
         result = self.__httpRequest__(apiMethod if str(apiMethod).lower().startswith("http") else self.__buildUrlRequest__(apiMethod, params))
         if result:
@@ -215,9 +221,8 @@ class HiRezAPI(BaseAPI):
             self.__responseFormat__ = ResponseFormat.JSON
             responseJSON = self.makeRequest("createsession")
             if responseJSON:
-                #self.currentSession = SessionSession(**responseJSON)
-                self.currentSession = responseJSON['session_id']
-                self.conf['Session']['session_id'] = responseJSON['session_id']
+                self.currentSessionId = Session(**responseJSON).sessionId
+                self.conf['Session']['session_id'] = self.currentSessionId
                 with open('{0}/conf.ini'.format(os.path.dirname(os.path.abspath(__file__))), 'w') as configfile:
                     self.conf.write(configfile)
             self.__responseFormat__ = tempResponseFormat
@@ -256,13 +261,13 @@ class HiRezAPI(BaseAPI):
         """
         # tempResponseFormat = self.__responseFormat__
         # self.__responseFormat__ = ResponseFormat.JSON
-        # session = self.currentSession.sessionId if sessionId is None or not str(sessionId).isalnum() else sessionId
+        # session = self.currentSessionId if sessionId is None or not str(sessionId).isalnum() else sessionId
         # uri = "{0}/testsession{1}/{2}/{3}/{4}/{5}".format(self.__endpointBaseURL__, self.__responseFormat__, self.__devId__, self.__createSignature__("testsession"), session, self.__createTimeStamp__())
         # responseJSON = self.makeRequest(uri)
         # self.__responseFormat__ = tempResponseFormat
         # return TestSession(responseJSON) if responseJSON else None
         
-        session = self.currentSession if sessionId is None else sessionId
+        session = sessionId if sessionId else self.currentSessionId
         uri = "{0}/testsession{1}/{2}/{3}/{4}/{5}".format(self.__endpointBaseURL__, self.__responseFormat__, self.__devId__, self.__createSignature__("testsession"), session, self.__createTimeStamp__())
         result = self.__httpRequest__(uri)
 
@@ -474,7 +479,7 @@ class HiRezAPI(BaseAPI):
         ----------
         playerID : int or str
         """
-        if not playerID or len(playerID) <= 3:
+        if not playerID or len(str(playerID)) <= 3:
             raise InvalidArgumentException("Invalid player!")
         if str(self.__responseFormat__).lower() == str(ResponseFormat.JSON).lower():
             if isinstance(self, RealmRoyaleAPI):
@@ -557,7 +562,7 @@ class PaladinsAPI(HiRezAPI):
         The response format that will be used by default when making requests.
         Otherwise, this will be used. It defaults to class:`ResponseFormat.JSON`.
     """
-    def __init__(self, devId, authKey, platform = Platform.PC, responseFormat = ResponseFormat.JSON):
+    def __init__(self, devId, authKey, platform = Platform.PC, responseFormat = ResponseFormat.JSON, sessionId = None):
         """
         Parameters
         ----------
@@ -574,7 +579,7 @@ class PaladinsAPI(HiRezAPI):
         if platform == Platform.MOBILE:
             raise NotSupported("Not released yet!")
         endpoint = Endpoint.PALADINS_XBOX if platform == Platform.XBOX or platform == Platform.NINTENDO_SWITCH else Endpoint.PALADINS_PS4 if platform == Platform.PS4 else Endpoint.PALADINS_PC
-        super().__init__(int(devId), str(authKey), endpoint, responseFormat)
+        super().__init__(int(devId), str(authKey), endpoint, responseFormat, sessionId)
 
     def switchPlatform(self, platform):
         if not isinstance(endpoint, Platform):
@@ -693,7 +698,7 @@ class RealmRoyaleAPI(HiRezAPI):
         The response format that will be used by default when making requests.
         Otherwise, this will be used. It defaults to class:`ResponseFormat.JSON`.
     """
-    def __init__(self, devId, authKey, platform = Platform.PC, responseFormat = ResponseFormat.JSON):
+    def __init__(self, devId, authKey, platform = Platform.PC, responseFormat = ResponseFormat.JSON, sessionId = None):
         """
         Parameters
         ----------
@@ -710,7 +715,7 @@ class RealmRoyaleAPI(HiRezAPI):
         if platform != Platform.PC:
             raise NotSupported("Not released yet!")
         endpoint = Endpoint.REALM_ROYALE_XBOX if(platform == Platform.XBOX) else Endpoint.REALM_ROYALE_PS4 if(platform == Platform.PS4) else Endpoint.REALM_ROYALE_PC
-        super().__init__(int(devId), str(authKey), endpoint, responseFormat)
+        super().__init__(int(devId), str(authKey), endpoint, responseFormat, sessionId)
 
     # /getplayermatchhistory[ResponseFormat]/{developerId}/{signature}/{session}/{timestamp}/{player}
     def getPlayerMatchHistory (self, playerID):
@@ -755,7 +760,7 @@ class SmiteAPI(HiRezAPI):
         The response format that will be used by default when making requests.
         Otherwise, this will be used. It defaults to class:`ResponseFormat.JSON`.
     """
-    def __init__(self, devId, authKey, platform = Platform.PC, responseFormat = ResponseFormat.JSON):
+    def __init__(self, devId, authKey, platform = Platform.PC, responseFormat = ResponseFormat.JSON, sessionId = None):
         """
         Parameters
         ----------
@@ -772,7 +777,7 @@ class SmiteAPI(HiRezAPI):
         if platform == Platform.NINTENDO_SWITCH or platform == Platform.MOBILE:
             raise NotSupported("Not released yet!")
         endpoint = Endpoint.SMITE_XBOX if(platform == Platform.XBOX) else Endpoint.SMITE_PS4 if(platform == Platform.PS4) else Endpoint.SMITE_PC
-        super().__init__(int(devId), str(authKey), endpoint, responseFormat)
+        super().__init__(int(devId), str(authKey), endpoint, responseFormat, sessionId)
 
     def switchPlatform(self, platform):
         if not isinstance(endpoint, Platform):
@@ -951,7 +956,7 @@ class HandOfTheGodsAPI(HiRezAPI):
         The response format that will be used by default when making requests.
         Otherwise, this will be used. It defaults to class:`ResponseFormat.JSON`.
     """
-    def __init__(self, devId, authKey, responseFormat = ResponseFormat.JSON):
+    def __init__(self, devId, authKey, responseFormat = ResponseFormat.JSON, sessionId = None):
         """
         Parameters
         ----------
@@ -966,7 +971,7 @@ class HandOfTheGodsAPI(HiRezAPI):
             Otherwise, this will be used. It defaults to class:`ResponseFormat.JSON`.
         """
         raise NotSupported("Not released yet!")
-        super().__init__(int(devId), str(authKey), Endpoint.HAND_OF_THE_GODS_PC, responseFormat)
+        super().__init__(int(devId), str(authKey), Endpoint.HAND_OF_THE_GODS_PC, responseFormat, sessionId)
 
 class PaladinsStrikeAPI(HiRezAPI):
     """
@@ -984,7 +989,7 @@ class PaladinsStrikeAPI(HiRezAPI):
         The response format that will be used by default when making requests.
         Otherwise, this will be used. It defaults to class:`ResponseFormat.JSON`.
     """
-    def __init__(self, devId, authKey, responseFormat = ResponseFormat.JSON):
+    def __init__(self, devId, authKey, responseFormat = ResponseFormat.JSON, sessionId = None):
         """
         Parameters
         ----------
@@ -999,5 +1004,5 @@ class PaladinsStrikeAPI(HiRezAPI):
             Otherwise, this will be used. It defaults to class:`ResponseFormat.JSON`.
         """
         raise NotSupported("Not released yet!")
-        super().__init__(int(devId), str(authKey), Endpoint.PALADINS_STRIKE_MOBILE, responseFormat)
+        super().__init__(int(devId), str(authKey), Endpoint.PALADINS_STRIKE_MOBILE, responseFormat, sessionId)
 
